@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Spiral\RoadRunner\GRPC;
 
 use Google\Protobuf\Internal\Message;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use Spiral\RoadRunner\GRPC\Event\PostInvokeEvent;
+use Spiral\RoadRunner\GRPC\Event\PreInvokeEvent;
 use Spiral\RoadRunner\GRPC\Exception\InvokeException;
 
 final class Invoker implements InvokerInterface
@@ -17,6 +20,11 @@ final class Invoker implements InvokerInterface
         'Method %s input type must be an instance of %s, ' .
         'but the input is type of %s';
 
+    public function __construct(
+        private readonly ?EventDispatcherInterface $dispatcher = null
+    ) {
+    }
+
     public function invoke(
         ServiceInterface $service,
         Method $method,
@@ -28,10 +36,14 @@ final class Invoker implements InvokerInterface
 
         $input = $input instanceof Message ? $input : $this->makeInput($method, $input);
 
+        $this->dispatcher?->dispatch(new PreInvokeEvent($ctx, $input));
+
         /** @var Message $message */
         $message = $callable($ctx, $input);
 
         \assert($this->assertResultType($method, $message));
+
+        $this->dispatcher?->dispatch(new PostInvokeEvent($message));
 
         try {
             return $message->serializeToString();
